@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="ja">
+<meta charset="UTF-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>シンデレラガールズ総選挙</title>
+
+<link href="style.css?202107060049" rel="stylesheet">
+<script src="lib/common/preload.js"></script>
+
+</head>
+<body>
+
+<h1><span id="title-number1"></span>シンデレラガールズ総選挙</h1>
+<h2 class="subtitle"><span id="rank-between"></span>の過去ランキング一覧</h2>
+
+<svg id="chart"></svg>
+<p class="supplement">51位は中間発表のみランクインしたアイドル。</p>
+
+<div class="controller"></div>
+
+<h2>累積ランキング <span id="title-number2"></span></h2>
+<p class="supplement">1位を50pt, 2位を49pt, ...としたランキング</p>
+<svg id="all-ranks"></svg>
+
+<h2 class="chart-title"><span id="title-number3"></span>ボイス実装数、属性数</h2>
+<div id="info">
+  <table id="information-table">
+    <tr>
+      <th class="type">範囲</th>
+      <th class="voice">Voice実装</th>
+      <th class="coRate">Co</th>
+      <th class="cuRate">Cu</th>
+      <th class="paRate">Pa</th>
+    </tr>
+  </table>
+</div>
+
+<h2 class="chart-title">各選挙のボイス実装数、属性数推移</h2>
+<svg id="line-chart"></svg>
+
+<h2 class="chart-title">各選挙のTOP10得票率（単位％）</h2>
+<div id="rate-table"></div>
+
+<script src="lib/d3/6.7.0/d3.min.js"></script>
+
+<!-- returns electionData -->
+<script src="data/elections.js"></script>
+<script src="img/dataUrl.js"></script>
+
+<script>
+const mapped = electionData
+  .filter(
+    d => d.meta.type === "normal"
+  )
+  .map((ed) => {
+    return ed.data.map((dt) => {
+      dt.number = ed.meta.title
+      return dt
+    })
+  })
+  
+const grouped = d3.group(mapped.flat(), d => d.name)
+
+const ranks = { min: 1, max: 5 } // 表示する順位
+const numbers = mapped.length // 総選挙の回数
+let selected = numbers
+const titleNum = () => `第${selected}回`
+const titleText = () => `${ranks.min}～${ranks.max}位`
+const margin = {top: 20, right: 10, bottom: 15, left: 40};
+const width = 375;
+const height = 380;
+const canvas = {
+  height: height - margin.top - margin.bottom,
+  width: width - margin.left - margin.right
+}
+const dxy = { x: 4, y: 3 } // dx, dy
+const imageHeight = 76
+const rectWidthMax = canvas.width / 5
+const rectHeight = canvas.height / numbers
+
+
+// 総選挙の回によるyScale
+const y = d3.scaleLinear()
+  .domain([1, numbers + 1])
+  .range([margin.top, canvas.height])
+
+// 描画エリア内のyScale（10回が上、1回が下）
+const ry = d3.scaleLinear()
+  .domain([numbers + 1, 1])
+  .range([imageHeight, canvas.height])
+
+// 描画エリア内の横位置（表示人数による）
+const xlr = d3.scaleLinear()
+  .domain([1, 5])
+  .range([margin.left, width - margin.right - rectWidthMax]);
+
+
+// allRanks
+const heightRate = 0.8
+const allRankData = []
+for (let [k, v] of grouped) {
+  let val = 0
+  let values = Array.from({length: numbers}, () => 0)
+  v.forEach(d => {
+    const re = /\d+/.exec(d.number)
+    values[re[0] - 1] = 51 - d.rank
+    val = val + 51 - d.rank
+  })
+  allRankData.push({ name: k, type: v[0].type, value: val, values: values })
+}
+
+// 10位までのランキング縦位置
+const rankY = d3.scaleLinear()
+  .domain([0, 9])
+  .range([margin.top, canvas.height * heightRate - margin.bottom])
+
+const allRanks = d3.select("#all-ranks")
+allRanks.attr("viewBox", [0, 0, width, height * heightRate])
+allRanks.attr("width", width + "px")
+allRanks.attr("height", height * heightRate + "px")
+
+const rg = allRanks.append("g").attr("class", "rg")
+
+
+// メインのチャート
+const svg = d3.select("#chart");
+svg.attr("viewBox", [0, 0, width, height]);
+svg.attr("width", width + "px");
+svg.attr("height", height + "px");
+
+const g = svg.append("g");
+
+// 縦軸ラベル（選挙回）
+g.selectAll(".titleNumber")
+  .data(Array.from({length: numbers}, (_, i) => i + 1))
+  .join("text")
+    .text(d => {
+      const sp = (d < 10) ? " " : ""
+      return sp + d + "回"
+    })
+    .attr("class", "titleNumber")
+    .attr("y", d => ry(d))
+    .attr("dy", y(1) + dxy.y)
+
+// 縦線
+g.selectAll(".verticalLine")
+  .data(Array.from({length: ranks.max + 1}, (_, i) => i + 1))
+  .join("line")
+    .attr("class", "verticalLine")
+    .attr("x1", d => xlr(d))
+    .attr("x2", d => xlr(d))
+    .attr("y1", ry(10))
+    .attr("y2", canvas.height + rectHeight)
+    .attr("stroke", "steelblue")
+
+// Clip Path
+const defs = g.append("defs")
+
+defs.append("clipPath").attr("id", "rectPath1")
+  .append("rect")
+      .attr("width", d => xlr(ranks.min + 1))
+      .attr("height", y(3))
+
+defs.append("clipPath").attr("id", "rectPath2")
+  .append("rect")
+      .attr("width", d => xlr(ranks.min + 1))
+      .attr("height", y(3))
+      .attr("x", xlr(2))
+
+defs.append("clipPath").attr("id", "rectPath3")
+  .append("rect")
+      .attr("width", d => xlr(ranks.min + 1))
+      .attr("height", y(3))
+      .attr("x", xlr(3))
+
+defs.append("clipPath").attr("id", "rectPath4")
+  .append("rect")
+      .attr("width", d => xlr(ranks.min + 1))
+      .attr("height", y(3))
+      .attr("x", xlr(4))
+
+defs.append("clipPath").attr("id", "rectPath5")
+  .append("rect")
+      .attr("width", d => xlr(ranks.min + 1))
+      .attr("height", y(3))
+      .attr("x", xlr(5))
+
+function numSorter(da, db) {
+  const re = /(\d+)/
+  const n1 = re.exec(da.number)
+  const n2 = re.exec(db.number)
+  return n1[0] - n2[0]
+}
+
+function getXlrVal(r) {
+  const rem = r % 5
+  return rem === 0 ? 5 : rem;
+}
+
+
+const draw = ((dat) => {
+
+const containerUpdate = g.selectAll(".container").data(dat)
+const containerEnter = containerUpdate.enter().append("g")
+const container = containerEnter.merge(containerUpdate).attr("class", "container")
+
+// アイドルの画像
+const idolImg = container.selectAll(".idol-image").data(dat)
+  .join("image")
+  .attr("class", "idol-image")
+  .attr("width", xlr(2) + dxy.x * 2)
+  .attr("xlink:href", d => "img/" + d.name + ".png")
+  .attr("x", d => -30 + xlr(getXlrVal(d.rank)))
+  .attr("y", d => dxy.y * 2)
+  .attr("clip-path", d => `url(#rectPath${getXlrVal(d.rank)})`)
+  .attr("opacity", 0)
+  .transition().duration(750)
+  .attr("opacity", 1)
+
+// ボイスの画像
+const voiceImg = container.selectAll(".voice-image").data(dat)
+  .join("image")
+  .attr("class", "voice-image")
+  .attr("width", 30)
+  .attr("xlink:href", d => {
+    if (!d.voice) return transparentImg
+    if (d.type === "Co") return coolVoice
+    if (d.type === "Cu") return cuteVoice
+    if (d.type === "Pa") return passionVoice
+  })
+  .attr("x", d => xlr(getXlrVal(d.rank)))
+  .attr("y", 10)
+  .attr("opacity", 0)
+  .transition().duration(750)
+  .attr("opacity", 1)
+
+// ラベル（アイドル名）
+const labels = container.selectAll(".idol-name").data(dat)
+  .join("text")
+  .text(d => d.name)
+  .attr("class", d => `type${d.type} idol-name`)
+  .attr("dy", ry(10) - dxy.y)
+  .attr("dx", d => xlr(getXlrVal(d.rank)))
+
+// 総選挙グラフ
+const graph = container.selectAll(".rev")
+  .data(d => {
+    const gp = grouped.get(d.name).sort(numSorter).map(idl => {
+      idl.selected = d.number
+      return idl
+    })
+    return gp
+  })
+  .join("rect")
+  .attr("class", "rev")
+  .attr("height", ry(1) - ry(2))
+  .attr("y", (d,i) => {
+    const res = /(\d+)/.exec(d.number)
+    return ry(res[0]) + dxy.y
+  })
+  .attr("x", d => xlr( getXlrVal(grouped.get(d.name).find(el => el.number === d.selected).rank)))
+  .attr("width", d => (xlr(2) - margin.left) - (xlr(2)  - xlr(1)) / 51 * d.rank)
+
+// グラフの値
+container.selectAll(".rev_text")
+  .data(d => grouped.get(d.name).sort(s=>s.number).map(m => {
+    m.present = (d.number === m.number) ? true : false;
+    return m
+  }))
+  .join("text")
+  .text(d => d.rank + "位")
+  .attr("class", d => {
+    const present = (d.present) ? " present" : ""
+    return "rev_text" + present
+  })
+  .attr("y", (d,i) => {
+    const res = /(\d+)/.exec(d.number)
+    return ry(res[0])
+  })
+  .attr("dx", d => xlr( getXlrVal(grouped.get(d.name).find(el => el.number === d.selected).rank)) + dxy.x)
+  .attr("dy", y(1) + dxy.y)
+
+  d3.select("#title-number1").text(titleNum())
+  d3.select("#title-number2").text(`（${titleNum()}時）`)
+  d3.select("#title-number3").text(`${titleNum()}の`)
+  d3.select("#rank-between").text(titleText())
+
+  return container
+}); // 描画関数のおわり
+
+
+
+function selectData(n, rmin, rmax) {
+  return electionData.filter(
+      d => d.meta.type === "normal"
+    )
+    .slice(n-1)[0].data.slice(rmin - 1, rmax)
+}
+
+function preloadNext(linkList) {
+  linkList.forEach(element => {
+    preloadImage("img/" + element.name + ".png")
+  });
+}
+
+// 描画
+const lastData = selectData(selected, ranks.min, ranks.max)
+draw(lastData)
+
+preloadNext(selectData(selected, ranks.min + 5, ranks.max + 5))
+preloadNext(selectData(selected - 1, ranks.min, ranks.max))
+
+drawInfo(selected)
+
+
+// 今回の強調表示
+const presentTitle = g.append("rect")
+  .attr("class", "presentTitle")
+  .attr("width", width - margin.right)
+  .attr("height", ry(1) - ry(2))
+  .attr("y", ry(numbers) + dxy.y)
+  .attr("fill", "steelblue")
+// 強調表示のセット
+function setPresentTitle(n) {
+  // 最前面にする（後から挿入された要素が前になる）
+  g.node().insertBefore(presentTitle.node(), null)
+
+  presentTitle.transition()
+    .attr("y", ry(n) + dxy.y)
+}
+
+// 操作UI
+const ctr = d3.select(".controller")
+
+const divOpt = ctr.append("div").attr("class", ".select-num")
+const optionLabel = divOpt.append("span").text("表示回: ")
+const sel = divOpt.append("select")
+const options = sel.selectAll(".options")
+  .data(Array.from({length: numbers}, (_, i) => i + 1))
+  .join("option")
+  .attr("value", d => d)
+  .attr("selected", d => d === selected)
+  .text(d => `第${d}回`)
+
+const divBtn = ctr.append("div").attr("class", ".change-rank")
+const btnLabel = divBtn.append("span").text("表示順位: ")
+const btnUp = divBtn.append("button")
+  .attr("id", "button-up")
+  .attr("class", "button-rank first")
+  .text("Up")
+
+const btnReset = divBtn.append("button")
+  .attr("id", "button-reset")
+  .attr("class", "button-rank")
+  .text("Reset")
+
+const btnDown = divBtn.append("button")
+  .attr("id", "button-down")
+  .attr("class", "button-rank last")
+  .text("Down")
+
+// UI動作
+sel.on('change', (event, d) => {
+  selected = sel.property('value')
+  if (selected == 1 && ranks.max > 30) {
+    ranks.min = 26
+    ranks.max = 30
+  }
+  draw(selectData(selected, ranks.min, ranks.max))
+  setPresentTitle(selected)
+  drawInfo(selected)
+  drawAllRanking(sortAllRankingData(allRankData, selected))
+  if (selected === 1) return
+  preloadNext(selectData(selected - 1, ranks.min, ranks.max))
+})
+
+btnDown.on('click', (event, d) => {
+  if (ranks.max === 50) return
+  selected = sel.property('value')
+  if (selected == 1 && ranks.max === 30) return
+  ranks.min = ranks.min + 5
+  ranks.max = ranks.max + 5
+  draw(selectData(selected, ranks.min, ranks.max))
+  if (ranks.max === 50) return
+  preloadNext(selectData(
+    selected,
+    ranks.min + 5,
+    ranks.max + 5
+  ))
+})
+
+btnReset.on('click', (event, d) => {
+  ranks.min = 1
+  ranks.max = 5
+  selected = sel.property('value')
+  draw(selectData(selected, ranks.min, ranks.max))
+})
+
+btnUp.on('click', (event, d) => {
+  if (ranks.min === 1) return
+  ranks.min = ranks.min - 5
+  ranks.max = ranks.max - 5
+  selected = sel.property('value')
+  draw(selectData(selected, ranks.min, ranks.max))
+})
+
+
+// #info部分
+function drawInfo(selectedNumber) {
+  // Voice率, 属性率 (1-10, 全体)
+  const dat = selectData(selectedNumber, 1, 50)
+  const stat = [
+    { type: 'トップ10', voiceRate: 0, coRate: 0, cuRate: 0, paRate: 0 },
+    { type: '全体', voiceRate: 0, coRate: 0, cuRate: 0, paRate: 0 },
+]
+  dat.forEach(d => {
+    if (d.rank < 11) {
+      if (d.voice) stat[0].voiceRate++
+      if (d.type === "Co") stat[0].coRate++
+      if (d.type === "Cu") stat[0].cuRate++
+      if (d.type === "Pa") stat[0].paRate++
+    }
+    if (d.voice) stat[1].voiceRate++
+    if (d.type === "Co") stat[1].coRate++
+    if (d.type === "Cu") stat[1].cuRate++
+    if (d.type === "Pa") stat[1].paRate++
+  })
+  const info = d3.select('#information-table tbody')
+  const rows = info.selectAll('.info-rows').data(stat).join('tr')
+    .attr('class', 'info-rows')
+  rows.selectAll('td').data(d => Object.entries(d)).join('td')
+    .text(d => d[1])
+    .attr('class', d => d[0])
+}
+
+
+// line chart
+const lineChartData = electionData.filter(
+    d => d.meta.type === "normal"
+  ).map(d => {
+    const dat = { t: d.meta.title, v: 0, co: 0, cu: 0, pa: 0 }
+    d.data.forEach(v => { 
+      if (v.voice) dat.v++
+      if (v.type === "Co") dat.co++
+      if (v.type === "Cu") dat.cu++
+      if (v.type === "Pa") dat.pa++
+    })
+    return dat
+  })
+const lineScaleX = d3.scaleLinear()
+  .domain([1, numbers])
+  .range([margin.left * 2, width - margin.right])
+const lineScaleY = d3.scaleLinear()
+  .domain([1, 51])
+  .range([height - margin.top, margin.bottom])
+const lineChart = d3.select("#line-chart");
+lineChart.attr("viewBox", [0, 0, width, height]);
+lineChart.attr("width", width + "px");
+lineChart.attr("height", height + "px");
+
+const glc = lineChart.append("g");
+
+glc.append("path").datum(lineChartData)
+  .attr("fill", "none")
+  .attr("stroke", "steelblue")
+  .attr("stroke-width", 1.5)
+  .attr("d", d3.line()
+    .x((d, i) => lineScaleX(i))
+    .y(d => lineScaleY(d.v))
+    )
+glc.append("path").datum(lineChartData)
+  .attr("fill", "none")
+  .attr("stroke", "#0169fe")
+  .attr("stroke-width", 1.5)
+  .attr("d", d3.line()
+    .x((d, i) => lineScaleX(i))
+    .y(d => lineScaleY(d.co))
+    )
+glc.append("path").datum(lineChartData)
+  .attr("fill", "none")
+  .attr("stroke", "#ff0476")
+  .attr("stroke-width", 1.5)
+  .attr("d", d3.line()
+    .x((d, i) => lineScaleX(i))
+    .y(d => lineScaleY(d.cu))
+    )
+glc.append("path").datum(lineChartData)
+  .attr("fill", "none")
+  .attr("stroke", "#ff7800")
+  .attr("stroke-width", 1.5)
+  .attr("d", d3.line()
+    .x((d, i) => lineScaleX(i))
+    .y(d => lineScaleY(d.pa))
+    )
+
+glc.selectAll(".chartTitle").data(lineChartData).join("text")
+  .attr("dx", (d, i) => lineScaleX(i) - dxy.x)
+  .attr("dy", (d, i) => lineScaleY(1) + margin.bottom)
+  .text(d => String(d.t).replace("第", "") )
+
+const chartYaxis = d3.axisLeft(lineScaleY)
+
+lineChart.append("g")
+.attr("transform", `translate(${margin.left - dxy.x},0)`)
+.call(chartYaxis)
+
+
+// all ranks
+drawAllRanking(sortAllRankingData(allRankData, selected))
+
+function sortAllRankingData(rdat, num) {
+  return rdat.map(d => {
+    d.value = d3.sum(d.values.slice(0, num))
+    return d
+  })
+  .sort((a, b) => b.value - a.value)
+}
+
+function drawAllRanking(rdat) {
+  const rankX = d3.scaleLinear()
+    .domain([rdat[10].value, rdat[0].value])
+    .range([margin.left, width - margin.right])
+  
+  const ranksName = rg.selectAll(".ranks-name").data(rdat)
+    .join("text")
+    .attr("class", "ranks-name")
+    .attr("dominant-baseline", "middle")
+    .attr("dy", (d, i) => rankY(i))
+    .attr("dx", margin.left + margin.right)
+    .text(d => d.name)
+  
+  const ranksValue = rg.selectAll(".ranks-value").data(rdat)
+    .join("text")
+    .attr("class", "ranks-value")
+    .attr("dominant-baseline", "middle")
+    .attr("font-size", "10pt")
+    .attr("dx", dxy.x)
+    .attr("dy", (d, i) => rankY(i) - dxy.y / 2)
+    .text(d => `${d.value}pt`)
+  
+  const ranksBar = rg.selectAll(".ranks-bar").data(rdat)
+    .join("rect")
+    .attr("class", "ranks-bar")
+    .attr("y", (d, i) => rankY(i) - margin.top + dxy.y)
+    .attr("height", rankY(2) - rankY(1))
+    .transition()
+    .attr("width", (d, i) => {
+      return (i > 10) ? 0 : rankX(d.value)
+    })
+}
+
+// draw rate chart
+
+const rateScaleX = d3.scaleLinear()
+  .domain([0, numbers])
+  .range([margin.left, width - margin.right])
+const rateScaleY = d3.scaleLinear()
+  .domain([0, 1])
+  .range([height - margin.top, margin.bottom])
+
+drawRateChart(mapped)
+
+function drawRateChart(dat) {
+  const rateChart = d3.select('#rate-table')
+  const rateTable = rateChart.append("table")
+  const tb = rateTable.append("tbody")
+  const th = tb.append("tr").selectAll(".rank-head").data(Array.from({length: numbers + 1}, (_, i) => i + 1))
+    .join("th")
+    .attr("class", "rank-head")
+    .text(d => {
+      if (d === 1) return "順位"
+      return (d-1) + "回" 
+    })
+
+  const drawRateTable = (data, rank) => {
+    const tr = tb.append("tr")
+    tr.append("td")
+      .attr("class", "rank-row_head rank" + rank)
+      .text(d => parseInt(rank,10) + 1)
+    const td = tr.selectAll(".rank-row .rank" + rank).data(data)
+      .join("td")
+      .attr("class", "rank-row rank" + rank)
+      .text(d => {
+        return parseInt((d[rank].vote / d[rank].top10Vote)*100, 10)
+      })
+  }
+
+  const topData = []
+  mapped.forEach(d => {
+    const ten = d.slice(0, 10)
+    const sum10 = d3.sum(ten, d => d.vote)
+    topData.push(
+      ten.map(t => {
+        t.top10Vote = sum10
+        return t
+      })
+    )
+  })
+  for (i in Array.from({length: 10}, (_, i) => i + 1)) {
+    drawRateTable(topData, i)
+  }
+}
+
+</script>
+
+</body>
+</html>
